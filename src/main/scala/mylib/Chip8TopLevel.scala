@@ -65,13 +65,13 @@ class Chip8VgaCtrl(rgbConfig: RgbConfig, timingsWidth: Int = 12) extends Compone
   io.vga.vSync := v.sync ^ v.polarity
   io.vga.colorEn := colorEn
 
-  when(colorEn & io.vram_data_in === 1){
+  when(colorEn & io.vram_data_in === 1 & v.counter > io.timings.v.colorStart + 15 & v.counter < io.timings.v.colorEnd - 15 ){
     io.vga.color.r := (default -> true)
     io.vga.color.g := (default -> true)
     io.vga.color.b := (default -> true)
   }.otherwise(io.vga.color.clear())
 
-  io.vram_address := ((h.counter-io.timings.h.colorStart)/10 +((v.counter-io.timings.v.colorStart)/10)*64).resized
+  io.vram_address := ((h.counter-io.timings.h.colorStart)/10 +((v.counter-io.timings.v.colorStart - 15)/10)*64).resized
 }
 
 class Chip8Core extends Component {
@@ -119,7 +119,7 @@ class Chip8Core extends Component {
     io.ram.we := False
     io.vram.we := False
 
-    val fetch_1 : State = new State with EntryPoint{
+    val fetch_1 : State = new State{
       whenIsActive {
         io.ram.address := program_counter
         program_counter := program_counter + 1
@@ -320,7 +320,7 @@ class Chip8Core extends Component {
         goto(fetch_1)
       }
     }
-    val screen_clear : State = new State {
+    val screen_clear : State = new State with EntryPoint{
       onEntry(screen_pos := 0)
       whenIsActive {
         io.vram.data_out := 0
@@ -441,16 +441,16 @@ class TangChip8TopLevel extends Component {
 
     //vga output
     val vga_timings = VgaTimings(12)
-    vga_timings.setAs( //640x320
+    vga_timings.setAs( //640x350
       640,
       96,
       16,
       48,
       false,
-      320,
+      350,
       2,
-      40,
-      70,
+      37,
+      60,
       false
     )
     val vga_ctrl = new Chip8VgaCtrl(rgb_config)

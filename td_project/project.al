@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Project Version="1" Path="C:/Users/mbere/Documents/projects/chip8-spinalhdl/td_project">
-    <Project_Created_Time>2021-03-18 11:57:02</Project_Created_Time>
+    <Project_Created_Time></Project_Created_Time>
     <TD_Version>5.0.25878</TD_Version>
     <UCode>01011010</UCode>
     <Name>project</Name>
@@ -58,7 +58,7 @@
     <Configurations>
     </Configurations>
     <Project_Settings>
-        <Step_Last_Change>2021-03-18 18:15:20.368</Step_Last_Change>
+        <Step_Last_Change>2021-03-18 19:45:40.150</Step_Last_Change>
         <Current_Step>60</Current_Step>
         <Step_Status>true</Step_Status>
     </Project_Settings>
