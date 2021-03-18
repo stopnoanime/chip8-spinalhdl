@@ -1,16 +1,16 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Project Version="1" Path="C:/Users/mbere/Documents/projects/SpinalTemplateSbt/td">
+<Project Version="1" Path="C:/Users/mbere/Documents/projects/chip8-spinalhdl/td_project">
     <Project_Created_Time>2021-03-18 11:57:02</Project_Created_Time>
     <TD_Version>5.0.25878</TD_Version>
     <UCode>01011010</UCode>
-    <Name>td</Name>
+    <Name>project</Name>
     <HardWare>
         <Family>EG4</Family>
         <Device>EG4S20BG256</Device>
     </HardWare>
     <Source_Files>
         <VHDL>
-            <File Path="../MyTopLevel.vhd">
+            <File Path="../TangChip8TopLevel.vhd">
                 <FileInfo>
                     <Attr Name="UsedInSyn" Val="true"/>
                     <Attr Name="UsedInP&R" Val="true"/>
@@ -48,7 +48,7 @@
     </FileSets>
     <TOP_MODULE>
         <LABEL></LABEL>
-        <MODULE>mytoplevel</MODULE>
+        <MODULE>tangchip8toplevel</MODULE>
         <CREATEINDEX>auto</CREATEINDEX>
     </TOP_MODULE>
     <Property>
@@ -58,7 +58,7 @@
     <Configurations>
     </Configurations>
     <Project_Settings>
-        <Step_Last_Change>2021-03-18 12:31:10.123</Step_Last_Change>
+        <Step_Last_Change>2021-03-18 18:15:20.368</Step_Last_Change>
         <Current_Step>60</Current_Step>
         <Step_Status>true</Step_Status>
     </Project_Settings>

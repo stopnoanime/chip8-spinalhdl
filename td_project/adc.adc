@@ -1,5 +1,7 @@
-set_pin_assignment	{ main_clk }	        { LOCATION = K14; }
-set_pin_assignment	{ main_resetn }	        { LOCATION = K16; }
+set_pin_assignment	{ io_clk }	        { LOCATION = K14; }
+set_pin_assignment	{ io_resetn }	        { LOCATION = K16; }
+
+set_pin_assignment	{ io_beep }				{ LOCATION = F16; }
 
 set_pin_assignment	{ io_vga_color_b[0] }	{ LOCATION = P11; }
 set_pin_assignment	{ io_vga_color_b[1] }	{ LOCATION = M10; }
@@ -11,5 +13,3 @@ set_pin_assignment	{ io_vga_color_r[1] }	{ LOCATION = R16; }
 set_pin_assignment	{ io_vga_color_r[2] }	{ LOCATION = N12; }
 set_pin_assignment	{ io_vga_vSync }		{ LOCATION = P5; }
 set_pin_assignment	{ io_vga_hSync }		{ LOCATION = N5; }
-
-
