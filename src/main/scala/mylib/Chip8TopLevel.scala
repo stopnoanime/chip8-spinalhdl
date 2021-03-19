@@ -30,6 +30,57 @@ case class RamInterface(data_w: Int, adr_w : Int) extends Bundle {
   val we = Reg(Bool()).asOutput()
 }
 
+case class SdInterface() extends Bundle {
+  val cs = out Bool()
+  val mosi = out Bool()
+  val miso = in Bool()
+  val sclk = out Bool()
+}
+
+class sd_controller(clockRate: Int, slowClockDivider: Int) extends BlackBox {
+  val generic = new Generic {
+    val clockRate = sd_controller.this.clockRate
+    val slowClockDivider = sd_controller.this.slowClockDivider
+  }
+  val io = new Bundle {
+    val reset = in Bool()
+    val clk = in Bool()
+
+    val sd_int = SdInterface()
+
+    val card_present = in Bool()
+    val card_write_prot = in Bool()
+
+    val rd = in Bool()
+    val rd_multiple = in Bool()
+    val dout = out Bits(8 bits)
+    val dout_avail = out Bool()
+    val dout_taken = in Bool()
+
+    val wr = in Bool()
+    val wr_multiple = in Bool()
+    val din = in Bits(8 bits)
+    val din_valid = in Bool()
+    val din_taken = out Bool()
+
+    val addr = in Bits(32 bits)
+    val erase_count = in Bits(8 bits)
+
+    val sd_error = out Bool()
+    val sd_busy = out Bool()
+    val sd_error_code = out Bits(3 bits)
+  }
+  noIoPrefix()
+  addRTLPath("./src/rtl/sd_spi.vhd")
+  mapClockDomain(clock = io.clk, reset = io.reset)
+  private def renameIO(): Unit = {
+    io.flatten.foreach(bt => {
+      if(bt.getName().contains("sd_int_")) bt.setName(bt.getName().replace("sd_int_", ""))
+    })
+  }
+  addPrePopTask(() => renameIO())
+}
+
 class Chip8VgaCtrl(rgbConfig: RgbConfig, timingsWidth: Int = 12) extends Component {
   val io = new Bundle {
     val timings       = in(VgaTimings(timingsWidth))
@@ -385,6 +436,7 @@ class TangChip8TopLevel extends Component {
     val resetn = in Bool()
     val vga = master(Vga(rgb_config))
     val beep = out Bool()
+    val sd_int = SdInterface()
   }
 
   val resetCtrlClockDomain = ClockDomain(
@@ -414,11 +466,11 @@ class TangChip8TopLevel extends Component {
   val mainArea = new ClockingArea(coreClockDomain) {
     //Memories
     val ram_main = Mem(Bits(8 bits),4096)
-    ram_main.initialContent = Tools.readmemh("rom3.txt")
+    //ram_main.initialContent = Tools.readmemh("rom3.txt")
     val ram_video = Mem(Bits(1 bits),2048)
     ram_video.initialContent = Array.fill(2048)(0)
 
-    //Main Chip8Core
+    //Chip8Core
     val core = new Chip8Core
     core.io.ram.data_in := ram_main.readSync(core.io.ram.address)
     ram_main.write(core.io.ram.address,core.io.ram.data_out,core.io.ram.we)
@@ -457,6 +509,21 @@ class TangChip8TopLevel extends Component {
     vga_ctrl.io.timings := vga_timings
     vga_ctrl.io.vram_data_in := ram_video.readSync(vga_ctrl.io.vram_address)
     vga_ctrl.io.vga <> io.vga
+
+    val sd_spi = new sd_controller(24000000,63)
+    io.sd_int <> sd_spi.io.sd_int
+    sd_spi.io.card_present := True
+    sd_spi.io.card_write_prot := True
+    sd_spi.io.rd_multiple := False
+    sd_spi.io.wr_multiple := False
+    sd_spi.io.erase_count := 0
+
+    sd_spi.io.rd := False
+    sd_spi.io.dout_taken := False
+    sd_spi.io.wr := False
+    sd_spi.io.din := 0
+    sd_spi.io.addr := 0
+    sd_spi.io.din_valid := False
 
   }
 }
