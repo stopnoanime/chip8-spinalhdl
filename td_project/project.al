@@ -2,7 +2,7 @@
 <Project Version="1" Path="C:/Users/mbere/Documents/projects/chip8-spinalhdl/td_project">
     <Project_Created_Time></Project_Created_Time>
     <TD_Version>5.0.25878</TD_Version>
-    <UCode>00011010</UCode>
+    <UCode>01011010</UCode>
     <Name>project</Name>
     <HardWare>
         <Family>EG4</Family>
@@ -57,7 +57,7 @@
     <TOP_MODULE>
         <LABEL></LABEL>
         <MODULE>tangchip8toplevel</MODULE>
-        <CREATEINDEX>auto</CREATEINDEX>
+        <CREATEINDEX>user</CREATEINDEX>
     </TOP_MODULE>
     <Property>
     </Property>
@@ -66,7 +66,7 @@
     <Configurations>
     </Configurations>
     <Project_Settings>
-        <Step_Last_Change>2021-03-19 11:18:11.163</Step_Last_Change>
+        <Step_Last_Change>2021-03-19 16:02:22.263</Step_Last_Change>
         <Current_Step>60</Current_Step>
         <Step_Status>true</Step_Status>
     </Project_Settings>

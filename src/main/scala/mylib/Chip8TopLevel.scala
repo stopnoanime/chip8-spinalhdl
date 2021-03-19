@@ -5,29 +5,13 @@ import spinal.lib._
 import spinal.lib.fsm._
 import spinal.lib.graphic._
 import spinal.lib.graphic.vga._
-
-import scala.collection.mutable.ArrayBuffer
-import scala.io.Source
-
-object Tools {
-  def readmemh(path: String): Array[BigInt] = {
-    val buffer = new ArrayBuffer[BigInt]
-    for (line <- Source.fromFile(path).getLines) {
-      val tokens: Array[String] = line.split("(//)").map(_.trim)
-      if (tokens.length > 0 && tokens(0) != "") {
-        val i = Integer.parseInt(tokens(0), 16)
-        buffer.append(i)
-      }
-    }
-    buffer.toArray
-  }
-}
+import spinal.lib.misc.BinTools
 
 case class RamInterface(data_w: Int, adr_w : Int) extends Bundle {
   val address = Reg(UInt(adr_w bits)).asOutput()
   val data_out = Reg(Bits(data_w bits)).asOutput()
   val data_in = Bits(data_w bits).asInput()
-  val we = Reg(Bool()).asOutput()
+  val we = RegInit(False).asOutput()
 }
 
 case class SdInterface() extends Bundle {
@@ -156,7 +140,7 @@ class Chip8Core extends Component {
   val freq_divider = Reg(UInt(24 bits)) init(0)
   val random_number = Reg(UInt(8 bits))
 
-  val copy_size = Reg(UInt(4 bits))
+  val reg_in_ins = Reg(UInt(4 bits))
   val current_reg = Reg(UInt(4 bits))
 
   //Ease of use functions:
@@ -308,21 +292,22 @@ class Chip8Core extends Component {
                 index_register := index_register + registers(ins_regx)
               }
               is(0x29) {
-                index_register := (0x50 + (registers(ins_regx)(3 downto 0)*5)).resized
+                index_register := (registers(ins_regx)(3 downto 0)*5).resized
               }
               is(0x33) {
+                reg_in_ins := ins_regx()
                 io.ram.address := index_register
                 io.ram.data_out := (registers(ins_regx) / 100).asBits
                 io.ram.we := True
                 goto(bcd_2)
               }
               is(0x55) {
-                copy_size := ins_regx()
+                reg_in_ins := ins_regx()
                 goto(reg_to_mem)
               }
               is(0x65) {
+                reg_in_ins := ins_regx()
                 current_reg := 0
-                copy_size := ins_regx()
                 goto(mem_to_reg)
               }
             }
@@ -337,7 +322,7 @@ class Chip8Core extends Component {
         io.ram.data_out := registers(current_reg).asBits
         io.ram.we := True
         current_reg := current_reg + 1
-        when(current_reg === copy_size)(goto(fetch_1))
+        when(current_reg === reg_in_ins)(goto(fetch_1))
       }
     }
     val mem_to_reg : State = new State {
@@ -352,7 +337,7 @@ class Chip8Core extends Component {
         registers(current_reg) := io.ram.data_in.asUInt
         current_reg := current_reg + 1
         goto(mem_to_reg)
-        when(current_reg === copy_size)(goto(fetch_1))
+        when(current_reg === reg_in_ins )(goto(fetch_1))
       }
     }
     val bcd_2 : State = new State {
@@ -429,6 +414,113 @@ class Chip8Core extends Component {
   random_number := random_number + 1
 }
 
+class Chip8Programmer extends Component {
+  val io = new Bundle {
+    val sd_int = SdInterface()
+
+    val core_reset = RegInit(True).asOutput()
+
+    val ram = RamInterface(8,12)
+    val prog_sel = in UInt(8 bits)
+    val prog_load = in Bool()
+  }
+
+  val font_table = Mem(Bits(4 bits), 80)
+  HexTools.initRam(font_table,"./roms/font",0)
+
+  val sd_spi = new sd_controller(24000000,63)
+  io.sd_int <> sd_spi.io.sd_int
+  sd_spi.io.card_write_prot := True
+  sd_spi.io.card_present := True
+  sd_spi.io.rd_multiple := False
+  sd_spi.io.wr_multiple := False
+  sd_spi.io.din_valid := False
+  sd_spi.io.erase_count := 0
+  sd_spi.io.wr := False
+  sd_spi.io.din := 0
+
+  val sd_addr = Reg(UInt(32 bits))
+  val sd_dout_taken = Reg(Bool()) init(False)
+  val sd_rd = Reg(Bool()) init(False)
+
+  val current_addr = Reg(UInt(12 bits)) init(0)
+  val byte_counter = Reg(UInt(9 bits))
+  val block_number = Reg(UInt(12 bits))
+  val block_counter = Reg(UInt(4 bits))
+
+  val fsm = new StateMachine{
+    val idle : State = new State {
+      whenIsActive {
+        when(io.prog_load === True)(goto(write_font))
+      }
+    }
+    val write_font : State = new State with EntryPoint{
+      onEntry{
+        current_addr := 0
+        io.core_reset := True
+      }
+      whenIsActive {
+        io.ram.data_out := font_table(current_addr)
+        io.ram.address := current_addr
+        io.ram.we := True
+        current_addr := current_addr + 1
+        when(current_addr === 79) {
+          block_counter := 0
+          block_number := io.prog_sel * 7
+          current_addr := 0x200
+          goto(write_prog_1)
+        }
+      }
+    }
+    val write_prog_1 : State = new State with EntryPoint{
+      whenIsActive {
+        when(sd_spi.io.sd_busy === False) {
+          byte_counter := 0
+          sd_addr := block_number
+          sd_rd := True
+          goto(write_prog_2)
+        }
+      }
+    }
+    val write_prog_2 : State = new State with EntryPoint{
+      whenIsActive {
+        when(sd_spi.io.dout_avail === True) {
+          io.ram.data_out := sd_spi.io.dout
+          io.ram.address := current_addr
+          current_addr := current_addr + 1
+          sd_dout_taken := True
+          goto(write_prog_3)
+        }
+      }
+    }
+    val write_prog_3 : State = new State with EntryPoint{
+      whenIsActive {
+        when(sd_spi.io.dout_avail === False) {
+          sd_dout_taken := False
+          goto(write_prog_2)
+
+          byte_counter := byte_counter + 1
+
+          when(byte_counter === 511){ //End of block
+            goto(write_prog_1)
+            sd_rd := False
+            block_number := block_number + 1
+            block_counter := block_counter + 1
+            when(block_counter === 6){ //End of row
+              io.core_reset := False
+              io.ram.we := False
+              goto(idle)
+            }
+          }
+        }
+      }
+    }
+  }
+  sd_spi.io.dout_taken <> sd_dout_taken
+  sd_spi.io.addr <> sd_addr.asBits
+  sd_spi.io.rd <> sd_rd
+}
+
 class TangChip8TopLevel extends Component {
   val rgb_config = RgbConfig(3,3,2)
   val io = new Bundle {
@@ -466,7 +558,7 @@ class TangChip8TopLevel extends Component {
   val mainArea = new ClockingArea(coreClockDomain) {
     //Memories
     val ram_main = Mem(Bits(8 bits),4096)
-    //ram_main.initialContent = Tools.readmemh("rom3.txt")
+    BinTools.initRam(ram_main,"./roms/BOOT")
     val ram_video = Mem(Bits(1 bits),2048)
     ram_video.initialContent = Array.fill(2048)(0)
 
@@ -510,21 +602,9 @@ class TangChip8TopLevel extends Component {
     vga_ctrl.io.vram_data_in := ram_video.readSync(vga_ctrl.io.vram_address)
     vga_ctrl.io.vga <> io.vga
 
-    val sd_spi = new sd_controller(24000000,63)
-    io.sd_int <> sd_spi.io.sd_int
-    sd_spi.io.card_present := True
-    sd_spi.io.card_write_prot := True
-    sd_spi.io.rd_multiple := False
-    sd_spi.io.wr_multiple := False
-    sd_spi.io.erase_count := 0
-
-    sd_spi.io.rd := False
-    sd_spi.io.dout_taken := False
-    sd_spi.io.wr := False
-    sd_spi.io.din := 0
-    sd_spi.io.addr := 0
-    sd_spi.io.din_valid := False
-
+    io.sd_int.mosi := False
+    io.sd_int.cs := False
+    io.sd_int.sclk := False
   }
 }
 
