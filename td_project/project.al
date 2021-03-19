@@ -2,7 +2,7 @@
 <Project Version="1" Path="C:/Users/mbere/Documents/projects/chip8-spinalhdl/td_project">
     <Project_Created_Time></Project_Created_Time>
     <TD_Version>5.0.25878</TD_Version>
-    <UCode>01011010</UCode>
+    <UCode>00000101</UCode>
     <Name>project</Name>
     <HardWare>
         <Family>EG4</Family>
@@ -10,7 +10,7 @@
     </HardWare>
     <Source_Files>
         <VHDL>
-            <File Path="../TangChip8TopLevel.vhd">
+            <File Path="../src/rtl/sd_spi.vhd">
                 <FileInfo>
                     <Attr Name="UsedInSyn" Val="true"/>
                     <Attr Name="UsedInP&R" Val="true"/>
@@ -18,7 +18,7 @@
                     <Attr Name="CompileOrder" Val="1"/>
                 </FileInfo>
             </File>
-            <File Path="../src/rtl/sd_spi.vhd">
+            <File Path="../Chip8TopLevel.vhd">
                 <FileInfo>
                     <Attr Name="UsedInSyn" Val="true"/>
                     <Attr Name="UsedInP&R" Val="true"/>
@@ -56,8 +56,8 @@
     </FileSets>
     <TOP_MODULE>
         <LABEL></LABEL>
-        <MODULE>tangchip8toplevel</MODULE>
-        <CREATEINDEX>user</CREATEINDEX>
+        <MODULE>chip8toplevel</MODULE>
+        <CREATEINDEX>auto</CREATEINDEX>
     </TOP_MODULE>
     <Property>
     </Property>
@@ -66,7 +66,7 @@
     <Configurations>
     </Configurations>
     <Project_Settings>
-        <Step_Last_Change>2021-03-19 16:02:22.263</Step_Last_Change>
+        <Step_Last_Change>2021-03-19 20:22:59.317</Step_Last_Change>
         <Current_Step>60</Current_Step>
         <Step_Status>true</Step_Status>
     </Project_Settings>

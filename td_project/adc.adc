@@ -1,4 +1,4 @@
-set_pin_assignment	{ io_clk }	        { LOCATION = K14; }
+set_pin_assignment	{ io_clk }	        	{ LOCATION = K14; }
 set_pin_assignment	{ io_resetn }	        { LOCATION = K16; }
 
 set_pin_assignment	{ io_beep }				{ LOCATION = F16; }
@@ -13,3 +13,11 @@ set_pin_assignment	{ io_vga_color_r[1] }	{ LOCATION = R16; }
 set_pin_assignment	{ io_vga_color_r[2] }	{ LOCATION = N12; }
 set_pin_assignment	{ io_vga_vSync }		{ LOCATION = P5; }
 set_pin_assignment	{ io_vga_hSync }		{ LOCATION = N5; }
+
+set_pin_assignment	{ io_sd_int_cs }	    { LOCATION = N14; }
+set_pin_assignment	{ io_sd_int_miso }	    { LOCATION = F13; }
+set_pin_assignment	{ io_sd_int_mosi }	    { LOCATION = H14; }
+set_pin_assignment	{ io_sd_int_sclk }	    { LOCATION = M9; }
+
+set_pin_assignment	{ io_ps2_ps2Clk }		{ LOCATION = C5; }
+set_pin_assignment	{ io_ps2_ps2Data }		{ LOCATION = B6; }

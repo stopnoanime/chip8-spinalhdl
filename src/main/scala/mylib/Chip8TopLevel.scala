@@ -69,8 +69,10 @@ class Chip8VgaCtrl(rgbConfig: RgbConfig, timingsWidth: Int = 12) extends Compone
   val io = new Bundle {
     val timings       = in(VgaTimings(timingsWidth))
     val vga           = master(Vga(rgbConfig))
+
     val vram_address  = out UInt(11 bits)
     val vram_data_in  = in Bits(1 bits)
+    val color_sel     = in UInt(3 bits)
   }
 
   case class HVArea(timingsHV: VgaTimingsHV, enable: Bool) extends Area {
@@ -101,9 +103,9 @@ class Chip8VgaCtrl(rgbConfig: RgbConfig, timingsWidth: Int = 12) extends Compone
   io.vga.colorEn := colorEn
 
   when(colorEn & io.vram_data_in === 1 & v.counter > io.timings.v.colorStart + 15 & v.counter < io.timings.v.colorEnd - 15 ){
-    io.vga.color.r := (default -> true)
-    io.vga.color.g := (default -> true)
-    io.vga.color.b := (default -> true)
+    io.vga.color.r := (default -> io.color_sel(2))
+    io.vga.color.g := (default -> io.color_sel(1))
+    io.vga.color.b := (default -> io.color_sel(0))
   }.otherwise(io.vga.color.clear())
 
   io.vram_address := ((h.counter-io.timings.h.colorStart)/10 +((v.counter-io.timings.v.colorStart - 15)/10)*64).resized
@@ -138,6 +140,7 @@ class Chip8Core extends Component {
   val pos_row = Reg(UInt(3 bits))
 
   val freq_divider = Reg(UInt(24 bits)) init(0)
+  val ins_freq_divider = Reg(UInt(24 bits)) init(0)
   val random_number = Reg(UInt(8 bits))
 
   val reg_in_ins = Reg(UInt(4 bits))
@@ -176,7 +179,7 @@ class Chip8Core extends Component {
     }
     val decode : State = new State {
       whenIsActive {
-        goto(fetch_1)
+        goto(wait_for_next_ins)
         switch(instruction_hi(7 downto 4)) {
           is(0x0) {
             when(ins_nnn === 0x0E0) {
@@ -322,7 +325,7 @@ class Chip8Core extends Component {
         io.ram.data_out := registers(current_reg).asBits
         io.ram.we := True
         current_reg := current_reg + 1
-        when(current_reg === reg_in_ins)(goto(fetch_1))
+        when(current_reg === reg_in_ins)(goto(wait_for_next_ins))
       }
     }
     val mem_to_reg : State = new State {
@@ -337,7 +340,7 @@ class Chip8Core extends Component {
         registers(current_reg) := io.ram.data_in.asUInt
         current_reg := current_reg + 1
         goto(mem_to_reg)
-        when(current_reg === reg_in_ins )(goto(fetch_1))
+        when(current_reg === reg_in_ins )(goto(wait_for_next_ins))
       }
     }
     val bcd_2 : State = new State {
@@ -353,7 +356,7 @@ class Chip8Core extends Component {
         io.ram.address := index_register + 2
         io.ram.data_out := (registers(ins_regx)%10).asBits
         io.ram.we := True
-        goto(fetch_1)
+        goto(wait_for_next_ins)
       }
     }
     val screen_clear : State = new State with EntryPoint{
@@ -364,7 +367,7 @@ class Chip8Core extends Component {
         io.vram.we := True
         screen_pos := screen_pos + 1
         when(screen_pos === 2047) {
-          goto(fetch_1)
+          goto(wait_for_next_ins)
         }
       }
     }
@@ -373,7 +376,7 @@ class Chip8Core extends Component {
       whenIsActive {
         io.ram.address := index_register + pos_col
         goto(screen_draw_pixel_1)
-        when(sprite_h === pos_col | screen_y + pos_col === 32){goto(fetch_1)}
+        when(sprite_h === pos_col | screen_y + pos_col === 32){goto(wait_for_next_ins)}
       }
     }
     val screen_draw_pixel_1 : State = new State {
@@ -400,6 +403,14 @@ class Chip8Core extends Component {
         }
       }
     }
+    val wait_for_next_ins : State = new State { //Delay to 500 instructions per second
+      whenIsActive{
+        when(ins_freq_divider === ClockDomain.current.frequency.getValue.toInt/500) {
+          ins_freq_divider := 0
+          goto(fetch_1)
+        }
+      }
+    }
   }
 
   //Timer function
@@ -410,7 +421,8 @@ class Chip8Core extends Component {
     when(beep_timer =/= 0)(beep_timer := beep_timer - 1)
     freq_divider := 0
   }
-  //"""Random""" number generator, shoudl proably use LFSR
+  ins_freq_divider := ins_freq_divider + 1
+  //"""Random""" number generator
   random_number := random_number + 1
 }
 
@@ -425,8 +437,8 @@ class Chip8Programmer extends Component {
     val prog_load = in Bool()
   }
 
-  val font_table = Mem(Bits(4 bits), 80)
-  HexTools.initRam(font_table,"./roms/font",0)
+  val font_table = Mem(Bits(8 bits), 80)
+  BinTools.initRam(font_table,"./font")
 
   val sd_spi = new sd_controller(24000000,63)
   io.sd_int <> sd_spi.io.sd_int
@@ -460,29 +472,29 @@ class Chip8Programmer extends Component {
         io.core_reset := True
       }
       whenIsActive {
-        io.ram.data_out := font_table(current_addr)
+        io.ram.data_out := font_table(current_addr.resized)
         io.ram.address := current_addr
         io.ram.we := True
         current_addr := current_addr + 1
         when(current_addr === 79) {
           block_counter := 0
-          block_number := io.prog_sel * 7
+          block_number := (io.prog_sel * 7).resized
           current_addr := 0x200
           goto(write_prog_1)
         }
       }
     }
-    val write_prog_1 : State = new State with EntryPoint{
+    val write_prog_1 : State = new State {
       whenIsActive {
         when(sd_spi.io.sd_busy === False) {
           byte_counter := 0
-          sd_addr := block_number
+          sd_addr := block_number.resized
           sd_rd := True
           goto(write_prog_2)
         }
       }
     }
-    val write_prog_2 : State = new State with EntryPoint{
+    val write_prog_2 : State = new State {
       whenIsActive {
         when(sd_spi.io.dout_avail === True) {
           io.ram.data_out := sd_spi.io.dout
@@ -493,7 +505,7 @@ class Chip8Programmer extends Component {
         }
       }
     }
-    val write_prog_3 : State = new State with EntryPoint{
+    val write_prog_3 : State = new State {
       whenIsActive {
         when(sd_spi.io.dout_avail === False) {
           sd_dout_taken := False
@@ -521,14 +533,97 @@ class Chip8Programmer extends Component {
   sd_spi.io.rd <> sd_rd
 }
 
-class TangChip8TopLevel extends Component {
-  val rgb_config = RgbConfig(3,3,2)
+class Ps2Controller extends Component {
+  val io = new Bundle {
+    val ps2 = master(PS2Keyboard())
+
+    val key_main = Reg(UInt(4 bits)).asOutput()
+    val key_main_pressed = Reg(Bool()).asOutput()
+    val key_control = Reg(Bits(4 bits)).asOutput()
+  }
+
+  val ps2_ctrl = new PS2KeyboardCtrl
+  io.ps2 <> ps2_ctrl.io.ps2
+
+  val prev_read_valid = RegNext(ps2_ctrl.io.read.valid)
+  val break_flag = Reg(Bool()) init False
+  val multi_flag = Reg(Bool()) init False
+  val pressed_ps2_code = Reg(Bits(8 bits))
+
+  def set_key(a: Int): Unit = {
+    io.key_main := a
+    io.key_main_pressed := True
+  }
+
+  val fsm = new StateMachine {
+    io.key_control := 0
+    val idle: State = new State with EntryPoint {
+      whenIsActive {
+        when(ps2_ctrl.io.read.valid & ~prev_read_valid){
+          when(ps2_ctrl.io.read.payload === 0xF0){
+            break_flag := True
+          }.elsewhen(ps2_ctrl.io.read.payload === 0xE0){
+            multi_flag := True
+          }.otherwise{
+            goto(decode)
+          }
+        }
+      }
+    }
+    val decode: State = new State {
+      whenIsActive {
+        when(break_flag){
+          when(ps2_ctrl.io.read.payload === pressed_ps2_code){
+            io.key_main := 0
+            io.key_main_pressed := False
+          }
+        }.otherwise{
+          io.key_main := 0
+          io.key_main_pressed := False
+          pressed_ps2_code := ps2_ctrl.io.read.payload
+
+          switch(ps2_ctrl.io.read.payload) {
+            is(0x16)(set_key(0x1))
+            is(0x1E)(set_key(0x2))
+            is(0x26)(set_key(0x3))
+            is(0x25)(set_key(0xC))
+            is(0x15)(set_key(0x4))
+            is(0x1D)(set_key(0x5))
+            is(0x24)(set_key(0x6))
+            is(0x2D)(set_key(0xD))
+            is(0x1C)(set_key(0x7))
+            is(0x1B)(set_key(0x8))
+            is(0x23)(set_key(0x9))
+            is(0x2B)(set_key(0xE))
+            is(0x1A)(set_key(0xA))
+            is(0x22)(set_key(0x0))
+            is(0x21)(set_key(0xB))
+            is(0x2A)(set_key(0xF))
+
+            is(0x41)(io.key_control := 1)
+            is(0x49)(io.key_control := 2)
+            is(0x4B)(io.key_control := 4)
+            is(0x42)(io.key_control := 8)
+          }
+        }
+        goto(idle)
+        break_flag := False
+        multi_flag := False
+      }
+    }
+  }
+}
+
+class Chip8TopLevel(rgb_config : RgbConfig, frequency: FixedFrequency) extends Component {
   val io = new Bundle {
     val clk = in Bool()
     val resetn = in Bool()
+
     val vga = master(Vga(rgb_config))
-    val beep = out Bool()
     val sd_int = SdInterface()
+    val ps2 = master(PS2Keyboard())
+
+    val beep = out Bool()
   }
 
   val resetCtrlClockDomain = ClockDomain(
@@ -552,36 +647,13 @@ class TangChip8TopLevel extends Component {
   val coreClockDomain = ClockDomain(
     clock     = io.clk,
     reset     = resetCtrl.coreReset,
-    frequency = FixedFrequency(24 MHz)
+    frequency = frequency
   )
 
   val mainArea = new ClockingArea(coreClockDomain) {
     //Memories
     val ram_main = Mem(Bits(8 bits),4096)
-    BinTools.initRam(ram_main,"./roms/BOOT")
     val ram_video = Mem(Bits(1 bits),2048)
-    ram_video.initialContent = Array.fill(2048)(0)
-
-    //Chip8Core
-    val core = new Chip8Core
-    core.io.ram.data_in := ram_main.readSync(core.io.ram.address)
-    ram_main.write(core.io.ram.address,core.io.ram.data_out,core.io.ram.we)
-    core.io.vram.data_in := ram_video.readSync(core.io.vram.address)
-    ram_video.write(core.io.vram.address,core.io.vram.data_out,core.io.vram.we)
-
-    //250Hz beep output
-    val beep_timer = Reg(UInt(24 bits))
-    val beep_wave = Reg(Bool())
-    beep_timer := beep_timer + 1;
-    when(beep_timer === ClockDomain.current.frequency.getValue.toInt/500){
-      beep_wave := ~beep_wave
-      beep_timer := 0
-    }
-    io.beep := core.io.beep_en & beep_wave
-
-    //Key input
-        core.io.key := 0
-        core.io.key_pressed := False
 
     //vga output
     val vga_timings = VgaTimings(12)
@@ -602,14 +674,53 @@ class TangChip8TopLevel extends Component {
     vga_ctrl.io.vram_data_in := ram_video.readSync(vga_ctrl.io.vram_address)
     vga_ctrl.io.vga <> io.vga
 
-    io.sd_int.mosi := False
-    io.sd_int.cs := False
-    io.sd_int.sclk := False
+    //Programmer
+    val programmer = new Chip8Programmer
+    io.sd_int <> programmer.io.sd_int
+    ram_main.write(programmer.io.ram.address,programmer.io.ram.data_out,programmer.io.ram.we)
+
+    //Core
+    val coreArea = new ResetArea(programmer.io.core_reset, true) {
+      //Chip8Core
+      val core = new Chip8Core
+      core.io.ram.data_in := ram_main.readSync(core.io.ram.address)
+      ram_main.write(core.io.ram.address,core.io.ram.data_out,core.io.ram.we)
+      core.io.vram.data_in := ram_video.readSync(core.io.vram.address)
+      ram_video.write(core.io.vram.address,core.io.vram.data_out,core.io.vram.we)
+
+      //250Hz beep output
+      val beep_timer = Reg(UInt(24 bits))
+      val beep_wave = Reg(Bool())
+      beep_timer := beep_timer + 1;
+      when(beep_timer === ClockDomain.current.frequency.getValue.toInt/500){
+        beep_wave := ~beep_wave
+        beep_timer := 0
+      }
+      io.beep := core.io.beep_en & beep_wave
+    }
+
+    //Ps2
+    val ps2_ctrl = new Ps2Controller
+    io.ps2 <> ps2_ctrl.io.ps2
+    coreArea.core.io.key := ps2_ctrl.io.key_main
+    coreArea.core.io.key_pressed := ps2_ctrl.io.key_main_pressed
+
+    val prog_sel = Reg(UInt(8 bits)) init(0)
+    val color_sel = Reg(UInt(3 bits)) init(7)
+    when(ps2_ctrl.io.key_control(0))(prog_sel := prog_sel - 1)
+    when(ps2_ctrl.io.key_control(1))(prog_sel := prog_sel + 1)
+    programmer.io.prog_load := ps2_ctrl.io.key_control(2)
+    when(ps2_ctrl.io.key_control(3)) {
+      color_sel := color_sel + 1
+      when(color_sel === 7)(color_sel := 1)
+    }
+    programmer.io.prog_sel := prog_sel
+    vga_ctrl.io.color_sel := color_sel
   }
 }
 
 object TangChip8Vhdl {
   def main(args: Array[String]) {
-    SpinalVhdl(new TangChip8TopLevel)
+    SpinalVhdl(new Chip8TopLevel(RgbConfig(3,3,2),FixedFrequency(24 MHz)))
   }
 }
