@@ -1,6 +1,6 @@
 package mylib
 
-import spinal.core.{Bits, _}
+import spinal.core._
 import spinal.lib._
 import spinal.lib.fsm._
 import spinal.lib.graphic._
@@ -102,10 +102,16 @@ class Chip8VgaCtrl(rgbConfig: RgbConfig, timingsWidth: Int = 12) extends Compone
   io.vga.vSync := v.sync ^ v.polarity
   io.vga.colorEn := colorEn
 
-  when(colorEn & io.vram_data_in === 1 & v.counter > io.timings.v.colorStart + 15 & v.counter < io.timings.v.colorEnd - 15 ){
-    io.vga.color.r := (default -> io.color_sel(2))
-    io.vga.color.g := (default -> io.color_sel(1))
-    io.vga.color.b := (default -> io.color_sel(0))
+  when(colorEn){
+    when(v.counter > io.timings.v.colorStart + 15 & v.counter < io.timings.v.colorEnd - 15 ){
+      io.vga.color.r := (default -> (io.color_sel(2) & io.vram_data_in.asBool))
+      io.vga.color.g := (default -> (io.color_sel(1) & io.vram_data_in.asBool))
+      io.vga.color.b := (default -> (io.color_sel(0) & io.vram_data_in.asBool))
+    }.otherwise{
+      io.vga.color.r := (default -> False, 0 -> True)
+      io.vga.color.g := (default -> False, 0 -> True)
+      io.vga.color.b := (default -> False, 0 -> True)
+    }
   }.otherwise(io.vga.color.clear())
 
   io.vram_address := ((h.counter-io.timings.h.colorStart)/10 +((v.counter-io.timings.v.colorStart - 15)/10)*64).resized
@@ -153,7 +159,7 @@ class Chip8Core extends Component {
   def ins_nn() = io.ram.data_in(7 downto 0).asUInt
   def ins_nnn() = (instruction_hi(3 downto 0) ## io.ram.data_in(7 downto 0)).asUInt
 
-  val fsm = new StateMachine{
+  val main_fsm = new StateMachine{
     io.ram.we := False
     io.vram.we := False
 
@@ -164,6 +170,7 @@ class Chip8Core extends Component {
         goto(fetch_2)
       }
     }
+
     val fetch_2 : State = new State {
       whenIsActive {
         io.ram.address := program_counter
@@ -171,12 +178,14 @@ class Chip8Core extends Component {
         goto(fetch_3)
       }
     }
+
     val fetch_3 : State = new State {
       whenIsActive {
         instruction_hi := io.ram.data_in
         goto(decode)
       }
     }
+
     val decode : State = new State {
       whenIsActive {
         goto(wait_for_next_ins)
@@ -264,9 +273,7 @@ class Chip8Core extends Component {
             screen_x := registers(ins_regx).resized
             screen_y := registers(ins_regy).resized
             sprite_h := ins_n
-            registers(15) := 0
-            pos_col := 0
-            goto(screen_draw_row)
+            goto(screen_draw)
           }
           is(0xE) {
             when(ins_nn === 0x9E) {
@@ -299,10 +306,7 @@ class Chip8Core extends Component {
               }
               is(0x33) {
                 reg_in_ins := ins_regx()
-                io.ram.address := index_register
-                io.ram.data_out := (registers(ins_regx) / 100).asBits
-                io.ram.we := True
-                goto(bcd_2)
+                goto(bcd)
               }
               is(0x55) {
                 reg_in_ins := ins_regx()
@@ -310,7 +314,6 @@ class Chip8Core extends Component {
               }
               is(0x65) {
                 reg_in_ins := ins_regx()
-                current_reg := 0
                 goto(mem_to_reg)
               }
             }
@@ -318,47 +321,22 @@ class Chip8Core extends Component {
         }
       }
     }
-    val reg_to_mem : State = new State {
+
+    val bcd : State = new State {
       onEntry(current_reg := 0)
       whenIsActive {
         io.ram.address := index_register + current_reg
-        io.ram.data_out := registers(current_reg).asBits
         io.ram.we := True
+        io.ram.data_out := current_reg.mux(
+          0 -> (registers(ins_regx)/100),
+          1 -> ((registers(ins_regx)/10)%10),
+          default -> (registers(ins_regx)%10)
+        ).asBits
         current_reg := current_reg + 1
-        when(current_reg === reg_in_ins)(goto(wait_for_next_ins))
+        when(current_reg === 2)(goto(wait_for_next_ins))
       }
     }
-    val mem_to_reg : State = new State {
-      whenIsActive {
-        io.ram.address := index_register + current_reg
-        goto(mem_to_reg_delay)
-      }
-    }
-    val mem_to_reg_delay : State = new StateDelay(1){whenCompleted(goto(mem_to_reg_2))}
-    val mem_to_reg_2 : State = new State {
-      whenIsActive {
-        registers(current_reg) := io.ram.data_in.asUInt
-        current_reg := current_reg + 1
-        goto(mem_to_reg)
-        when(current_reg === reg_in_ins )(goto(wait_for_next_ins))
-      }
-    }
-    val bcd_2 : State = new State {
-      whenIsActive {
-        io.ram.address := index_register + 1
-        io.ram.data_out := ((registers(ins_regx)/10)%10).asBits
-        io.ram.we := True
-        goto(bcd_3)
-      }
-    }
-    val bcd_3 : State = new State {
-      whenIsActive {
-        io.ram.address := index_register + 2
-        io.ram.data_out := (registers(ins_regx)%10).asBits
-        io.ram.we := True
-        goto(wait_for_next_ins)
-      }
-    }
+
     val screen_clear : State = new State with EntryPoint{
       onEntry(screen_pos := 0)
       whenIsActive {
@@ -371,12 +349,70 @@ class Chip8Core extends Component {
         }
       }
     }
-    val screen_draw_row : State = new State {
+
+    val reg_to_mem : State = new State {
+      onEntry(current_reg := 0)
+      whenIsActive {
+        io.ram.address := index_register + current_reg
+        io.ram.data_out := registers(current_reg).asBits
+        io.ram.we := True
+        current_reg := current_reg + 1
+        when(current_reg === reg_in_ins)(goto(wait_for_next_ins))
+      }
+    }
+
+    val mem_to_reg = new StateFsm(fsm=mem_to_reg_fsm()){
+      onEntry(current_reg := 0)
+      whenCompleted{
+        goto(wait_for_next_ins)
+      }
+    }
+
+    val screen_draw = new StateFsm(fsm=screen_draw_fsm()){
+      onEntry{
+        registers(15) := 0
+        pos_col := 0
+      }
+      whenCompleted{
+        goto(wait_for_next_ins)
+      }
+    }
+
+    val wait_for_next_ins : State = new State { //Delay to 500 instructions per second
+      whenIsActive{
+        when(ins_freq_divider === ClockDomain.current.frequency.getValue.toInt/700) {
+          ins_freq_divider := 0
+          goto(fetch_1)
+        }
+      }
+    }
+  }
+
+  def mem_to_reg_fsm() = new StateMachine {
+    val mem_to_reg_1 : State = new State with EntryPoint {
+      whenIsActive {
+        io.ram.address := index_register + current_reg
+        goto(mem_to_reg_delay)
+      }
+    }
+    val mem_to_reg_delay : State = new StateDelay(1){whenCompleted(goto(mem_to_reg_2))}
+    val mem_to_reg_2 : State = new State {
+      whenIsActive {
+        registers(current_reg) := io.ram.data_in.asUInt
+        current_reg := current_reg + 1
+        goto(mem_to_reg_1)
+        when(current_reg === reg_in_ins )(exit())
+      }
+    }
+  }
+
+  def screen_draw_fsm() = new StateMachine {
+    val screen_draw_row : State = new State with EntryPoint {
       onEntry(pos_row := 0)
       whenIsActive {
         io.ram.address := index_register + pos_col
         goto(screen_draw_pixel_1)
-        when(sprite_h === pos_col | screen_y + pos_col === 32){goto(wait_for_next_ins)}
+        when(sprite_h === pos_col | screen_y + pos_col === 32)(exit())
       }
     }
     val screen_draw_pixel_1 : State = new State {
@@ -403,25 +439,18 @@ class Chip8Core extends Component {
         }
       }
     }
-    val wait_for_next_ins : State = new State { //Delay to 500 instructions per second
-      whenIsActive{
-        when(ins_freq_divider === ClockDomain.current.frequency.getValue.toInt/500) {
-          ins_freq_divider := 0
-          goto(fetch_1)
-        }
-      }
-    }
   }
 
-  //Timer function
+  //Timer functions
   io.beep_en := beep_timer =/= 0
   freq_divider := freq_divider + 1
+  ins_freq_divider := ins_freq_divider + 1
   when(freq_divider === ClockDomain.current.frequency.getValue.toInt/60){
     when(delay_timer =/= 0)(delay_timer := delay_timer - 1)
     when(beep_timer =/= 0)(beep_timer := beep_timer - 1)
     freq_divider := 0
   }
-  ins_freq_divider := ins_freq_divider + 1
+
   //"""Random""" number generator
   random_number := random_number + 1
 }
@@ -438,7 +467,7 @@ class Chip8Programmer extends Component {
   }
 
   val font_table = Mem(Bits(8 bits), 80)
-  BinTools.initRam(font_table,"./font")
+  BinTools.initRam(font_table,"./roms/font")
 
   val sd_spi = new sd_controller(24000000,63)
   io.sd_int <> sd_spi.io.sd_int
@@ -719,7 +748,7 @@ class Chip8TopLevel(rgb_config : RgbConfig, frequency: FixedFrequency) extends C
   }
 }
 
-object TangChip8Vhdl {
+object Chip8Vhdl {
   def main(args: Array[String]) {
     SpinalVhdl(new Chip8TopLevel(RgbConfig(3,3,2),FixedFrequency(24 MHz)))
   }
